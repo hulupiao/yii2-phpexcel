@@ -429,6 +429,7 @@ class Excel extends \yii\base\Widget
 	public $compatibilityOffice2003 = false;
 
 	public $titles = [];
+	public $footers = [];
 	/**
 	 * (non-PHPdoc)
 	 * @see \yii\base\Object::init()
@@ -449,7 +450,7 @@ class Excel extends \yii\base\Widget
 	/**
 	 * Setting data from models
 	 */
-	public function executeColumns(&$activeSheet = null, $models, $columns = [], $headers = [], $titles = [])
+	public function executeColumns(&$activeSheet = null, $models, $columns = [], $headers = [])
 	{
 		if ($activeSheet == null) {
 			$activeSheet = $this->activeSheet;
@@ -511,6 +512,7 @@ class Excel extends \yii\base\Widget
 				}
 			}
 		}
+		$this->setFooters($activeSheet, $row);
 	}
 	public function setTitles(&$activeSheet, &$row){
         if(empty($this->titles)){
@@ -535,6 +537,29 @@ class Excel extends \yii\base\Widget
                     $activeSheet->getStyle($scn)->getFont()->setSize($v['fontSize']);
                 }
                 $activeSheet->getStyle($scn)->applyFromArray($styleArray);
+                $activeSheet->mergeCells($scn.':'.$ecn);
+            }
+            $row++;
+        }
+    }
+    public function setFooters(&$activeSheet, &$row){
+        if(empty($this->footers)){
+            return null;
+        }
+        foreach ($this->footers as $key => $value){
+            $end_column = 0;
+            foreach ($value as $k => $v){
+                $c = isset($v['columns']) ? $v['columns'] : 1;
+                $start_column = $end_column+1;
+                $end_column = $start_column+$c-1;
+                $sc = $this->getColumnName($start_column);
+                $ec = $this->getColumnName($end_column);
+                $scn = $sc.$row;
+                $ecn = $ec.$row;
+                $activeSheet->setCellValue($scn, $v['field']);
+                if(isset($v['fontSize'])){
+                    $activeSheet->getStyle($scn)->getFont()->setSize($v['fontSize']);
+                }
                 $activeSheet->mergeCells($scn.':'.$ecn);
             }
             $row++;
@@ -835,7 +860,7 @@ class Excel extends \yii\base\Widget
         	    		$worksheet = $sheet->getActiveSheet();
                         //$worksheet->setCellValue('A1', 'Welcome to Helloweba.');
                         //$worksheet->mergeCells('A1:R1');
-                        $this->executeColumns($worksheet, $this->models, isset($this->columns) ? $this->populateColumns($this->columns) : [], isset($this->headers) ? $this->headers : [], $this->titles);
+                        $this->executeColumns($worksheet, $this->models, isset($this->columns) ? $this->populateColumns($this->columns) : [], isset($this->headers) ? $this->headers : []);
         	    	}
         	    	
         	    	if ($this->asAttachment) {

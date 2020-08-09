@@ -7,6 +7,7 @@ use yii\base\InvalidConfigException;
 use yii\base\InvalidParamException;
 use yii\i18n\Formatter;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 /**
  * Excel Widget for generate Excel File or for load Excel File.
@@ -426,15 +427,8 @@ class Excel extends \yii\base\Widget
 	 * @var boolean Because of a bug in the Office2003 compatibility pack, there can be some small issues when opening Xlsx spreadsheets (mostly related to formula calculation)
 	 */
 	public $compatibilityOffice2003 = false;
-	/**
-	 * @var custom CSV delimiter for import. Works only with CSV files
-	 */
-	public $CSVDelimiter = ";";
-	/**
-	 * @var custom CSV encoding for import. Works only with CSV files
-	 */
-	public $CSVEncoding = "UTF-8";
-  
+
+	public $titles = [];
 	/**
 	 * (non-PHPdoc)
 	 * @see \yii\base\Object::init()
@@ -455,33 +449,25 @@ class Excel extends \yii\base\Widget
 	/**
 	 * Setting data from models
 	 */
-	public function executeColumns(&$activeSheet = null, $models, $columns = [], $headers = [])
+	public function executeColumns(&$activeSheet = null, $models, $columns = [], $headers = [], $titles = [])
 	{
 		if ($activeSheet == null) {
 			$activeSheet = $this->activeSheet;
 		}
 		$hasHeader = false;
-		$row = 1;
+        $row = 1;
+
+        $this->setTitles($activeSheet, $row);
+
 		$char = 26;
 		foreach ($models as $model) {
 			if (empty($columns)) {
 				$columns = $model->attributes();
 			}
 			if ($this->setFirstTitle && !$hasHeader) {
-				$isPlus = false;
-				$colplus = 0;
 				$colnum = 1;
 				foreach ($columns as $key=>$column) {
-					$col = '';
-					if ($colnum > $char) {
-						$colplus += 1;
-						$colnum = 1;
-						$isPlus = true;
-					}
-					if ($isPlus) {
-						$col .= chr(64+$colplus);
-					}
-					$col .= chr(64+$colnum);
+                    $col = $this->getColumnName($colnum);
 					$header = '';
 					if (is_array($column)) {
 						if (isset($column['header'])) {
@@ -494,14 +480,7 @@ class Excel extends \yii\base\Widget
 						    $activeSheet->getStyle($col.$row)->applyFromArray($column['cellFormat']);
 						}
 					} else {
-					    if(isset($headers[$column])) {
-					        $header = $headers[$column];
-					    } else {
-					        $header = $model->getAttributeLabel($column);
-					    }
-					}
-					if (isset($column['width'])) {
-					    $activeSheet->getColumnDimension(strtoupper($col))->setWidth($column['width']);
+						$header = $model->getAttributeLabel($column);
 					}
 					$activeSheet->setCellValue($col.$row,$header);
 					$colnum++;
@@ -509,20 +488,10 @@ class Excel extends \yii\base\Widget
 				$hasHeader=true;
 				$row++;
 			}
-			$isPlus = false;
-			$colplus = 0;
+
 			$colnum = 1;
 			foreach ($columns as $key=>$column) {
-				$col = '';
-				if ($colnum > $char) {
-					$colplus++;
-					$colnum = 1;
-					$isPlus = true;
-				}
-				if ($isPlus) {
-					$col .= chr(64+$colplus);
-				}
-				$col .= chr(64+$colnum);
+                $col = $this->getColumnName($colnum);
 				if (is_array($column)) {
 				    $column_value = $this->executeGetColumnData($model, $column);
 				    if (isset($column['cellFormat']) && is_array($column['cellFormat'])) {
@@ -535,7 +504,7 @@ class Excel extends \yii\base\Widget
 				$colnum++;
 			}
 			$row++;
-			
+
 			if($this->autoSize){
 				foreach (range(0, $colnum) as $col) {
 					$activeSheet->getColumnDimensionByColumn($col)->setAutoSize(true);
@@ -543,7 +512,47 @@ class Excel extends \yii\base\Widget
 			}
 		}
 	}
+	public function setTitles(&$activeSheet, &$row){
+        if(empty($this->titles)){
+            return null;
+        }
+        $styleArray = [
+            'alignment' => [
+                'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER,
+            ],
+        ];
+        foreach ($this->titles as $key => $value){
+            $end_column = 0;
+            foreach ($value as $k => $v){
+                $start_column = $end_column+1;
+                $end_column = $start_column+$v['columns']-1;
+                $sc = $this->getColumnName($start_column);
+                $ec = $this->getColumnName($end_column);
+                $scn = $sc.$row;
+                $ecn = $ec.$row;
+                $activeSheet->setCellValue($scn, $v['field']);
+                if(isset($v['fontSize'])){
+                    $activeSheet->getStyle($scn)->getFont()->setSize($v['fontSize']);
+                }
+                $activeSheet->getStyle($scn)->applyFromArray($styleArray);
+                $activeSheet->mergeCells($scn.':'.$ecn);
+            }
+            $row++;
+        }
+    }
+    public function getColumnName($num){
+        $name = '';
+        $s = ceil($num/26);
+        $e = $num%26;
 
+        if($s > 1 && $e){
+            $name = chr(64+$s-1);
+            $name .= chr(64+$e);
+        } else {
+            $name = chr(64+$num);
+        }
+        return $name;
+    }
 	/**
 	 * Setting label or keys on every record if setFirstRecordAsKeys is true.
 	 * @param array $sheetData
@@ -726,8 +735,6 @@ class Excel extends \yii\base\Widget
 		$objectwriter->save($path);
 		if ($path == 'php://output')
     		  exit();
-		
-    		 return true;
 	}
 
 	/**
@@ -738,10 +745,6 @@ class Excel extends \yii\base\Widget
 		if (!isset($this->format))
 			$this->format = \PhpOffice\PhpSpreadsheet\IOFactory::identify($fileName);
 		$objectreader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader($this->format);
-		if ($this->format == "Csv") {
-			$objectreader->setDelimiter($this->CSVDelimiter);
-			$objectreader->setInputEncoding($this->CSVEncoding);
-		}
 		$objectPhpExcel = $objectreader->load($fileName);
 
 		$sheetCount = $objectPhpExcel->getSheetCount();
@@ -830,7 +833,9 @@ class Excel extends \yii\base\Widget
         	    		}
         	    	} else {
         	    		$worksheet = $sheet->getActiveSheet();
-        	    		$this->executeColumns($worksheet, $this->models, isset($this->columns) ? $this->populateColumns($this->columns) : [], isset($this->headers) ? $this->headers : []);
+                        //$worksheet->setCellValue('A1', 'Welcome to Helloweba.');
+                        //$worksheet->mergeCells('A1:R1');
+                        $this->executeColumns($worksheet, $this->models, isset($this->columns) ? $this->populateColumns($this->columns) : [], isset($this->headers) ? $this->headers : [], $this->titles);
         	    	}
         	    	
         	    	if ($this->asAttachment) {
